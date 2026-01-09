@@ -1,10 +1,12 @@
 
 import React, { useState } from 'react';
 import { UserStats, SupportedLanguage } from '../types';
+import { Flame, Coins, Gem, Heart, ShieldAlert, Sparkles } from 'lucide-react';
 
 interface TopBarProps {
   stats: UserStats;
   onLanguageChange: (lang: SupportedLanguage) => void;
+  onExpertToggle: (mode: boolean) => void;
 }
 
 const SUPPORTED_LANGUAGES: {code: SupportedLanguage, flag: string}[] = [
@@ -31,10 +33,10 @@ const SUPPORTED_LANGUAGES: {code: SupportedLanguage, flag: string}[] = [
 ];
 
 const TOOLTIP_TRANSLATIONS: Record<string, any> = {
-  es: { streak: "Racha: Días seguidos practicando", gems: "Gemas: Monedas para recompensas", hearts: "Vidas", dailyGoal: "Meta XP", gcd: "GCD COIN" },
+  es: { streak: "Racha: Días seguidos practicando", gems: "Gemas: Monedas para recompensas", hearts: "Vidas", dailyGoal: "Meta XP", gcd: "GCD COIN", expert: "Modo Experto: Sin pistas, tiempo limitado, +XP" },
 };
 
-const TopBar: React.FC<TopBarProps> = ({ stats, onLanguageChange }) => {
+const TopBar: React.FC<TopBarProps> = ({ stats, onLanguageChange, onExpertToggle }) => {
   const [showLangMenu, setShowLangMenu] = useState(false);
   const progress = Math.min((stats.dailyXP / stats.dailyGoal) * 100, 100);
   
@@ -81,21 +83,40 @@ const TopBar: React.FC<TopBarProps> = ({ stats, onLanguageChange }) => {
         </div>
       </div>
 
-      <div className="flex items-center gap-6 justify-end w-full md:w-auto">
-        <div className="flex items-center gap-2 group cursor-help bg-yellow-50 px-3 py-1.5 rounded-2xl border border-yellow-100" title={tooltips.gcd}>
-          <div className="w-6 h-6 bg-gradient-to-br from-yellow-400 to-yellow-600 rounded-full flex items-center justify-center text-[10px] text-white font-black border border-white shadow-sm">G</div>
+      <div className="flex items-center gap-4 md:gap-6 justify-end w-full md:w-auto overflow-x-auto no-scrollbar py-1">
+        {/* Expert Mode Toggle */}
+        <button 
+          onClick={() => onExpertToggle(!stats.expertMode)}
+          title={tooltips.expert}
+          className={`flex items-center gap-2 px-4 py-2 rounded-2xl border-2 transition-all shrink-0 ${
+            stats.expertMode 
+              ? 'bg-indigo-600 border-indigo-700 text-white shadow-lg' 
+              : 'bg-white border-gray-100 text-gray-400 hover:border-indigo-400 hover:text-indigo-400'
+          }`}
+        >
+          {stats.expertMode ? <Sparkles size={16} className="animate-pulse" /> : <ShieldAlert size={16} />}
+          <span className="text-[10px] font-black uppercase tracking-widest hidden sm:inline">Expert Mode</span>
+        </button>
+
+        <div className="flex items-center gap-2 group cursor-help bg-yellow-50 px-3 py-1.5 rounded-2xl border border-yellow-100 shrink-0" title={tooltips.gcd}>
+          <div className="w-6 h-6 bg-gradient-to-br from-yellow-400 to-yellow-600 rounded-full flex items-center justify-center border border-white shadow-sm">
+            <Coins size={12} className="text-white" />
+          </div>
           <span className="font-black text-yellow-700">{stats.gcdBalance.toFixed(2)}</span>
         </div>
-        <div className="flex items-center gap-2 group cursor-help" title={tooltips.streak}>
-          <span className="text-xl transition-transform group-hover:scale-125">🔥</span>
+        
+        <div className="flex items-center gap-2 group cursor-help shrink-0" title={tooltips.streak}>
+          <Flame size={22} className="text-orange-500 transition-transform group-hover:scale-125" />
           <span className="font-bold text-orange-500">{stats.streak}</span>
         </div>
-        <div className="flex items-center gap-2 group cursor-help" title={tooltips.gems}>
-          <span className="text-xl transition-transform group-hover:rotate-12">💎</span>
+        
+        <div className="flex items-center gap-2 group cursor-help shrink-0" title={tooltips.gems}>
+          <Gem size={22} className="text-blue-400 transition-transform group-hover:rotate-12" />
           <span className="font-bold text-blue-400">{stats.gems}</span>
         </div>
-        <div className="flex items-center gap-2 group cursor-help" title={tooltips.hearts}>
-          <span className="text-xl transition-transform group-hover:scale-110">❤️</span>
+        
+        <div className="flex items-center gap-2 group cursor-help shrink-0" title={tooltips.hearts}>
+          <Heart size={22} className="text-red-500 transition-transform group-hover:scale-110" />
           <span className="font-bold text-red-500">{stats.hearts}</span>
         </div>
       </div>

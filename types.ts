@@ -13,6 +13,14 @@ export interface User {
   stats: UserStats;
 }
 
+export interface AppNotification {
+  id: string;
+  title: string;
+  message: string;
+  type: 'STREAK' | 'MISSION' | 'LESSON' | 'XP';
+  icon: string;
+}
+
 export interface Achievement {
   id: string;
   title: string;
@@ -55,6 +63,7 @@ export interface Mission {
   target: number;
   current: number;
   completed: boolean;
+  type: 'XP' | 'WORDS' | 'LESSONS' | 'PERFECT';
 }
 
 export interface Lesson {
@@ -63,7 +72,7 @@ export interface Lesson {
   description: string;
   exercises: Exercise[];
   status: 'locked' | 'available' | 'completed';
-  type?: 'regular' | 'boss' | 'story';
+  type?: 'regular' | 'boss' | 'story' | 'roleplay';
 }
 
 export interface SavedPhrase {
@@ -88,12 +97,14 @@ export interface UserStats {
   level?: CEFRLevel;
   nativeLanguage: SupportedLanguage;
   missions: Mission[];
+  lastMissionUpdate?: string;
   walletAddress?: string;
   gcdBalance: number;
   achievements: Achievement[];
   activityHistory: ActivityDay[];
   currentOutfit: string;
   unlockedOutfits: string[];
+  expertMode: boolean;
 }
 
 export interface PronunciationFeedback {

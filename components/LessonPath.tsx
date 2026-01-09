@@ -1,6 +1,8 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Lesson } from '../types';
+import { Headphones, Loader2 } from 'lucide-react';
+import { playLessonAudioSummary } from '../services/geminiService';
 
 interface LessonPathProps {
   lessons: Lesson[];
@@ -8,6 +10,8 @@ interface LessonPathProps {
 }
 
 const LessonPath: React.FC<LessonPathProps> = ({ lessons, onSelectLesson }) => {
+  const [playingId, setPlayingId] = useState<string | null>(null);
+
   // Group lessons into units of 5 for themed regions
   const units = [];
   for (let i = 0; i < lessons.length; i += 5) {
@@ -22,6 +26,21 @@ const LessonPath: React.FC<LessonPathProps> = ({ lessons, onSelectLesson }) => {
       { name: 'Social Fluency', color: 'from-yellow-400 to-orange-600', icon: '🗣️' },
     ];
     return themes[index % themes.length];
+  };
+
+  const handlePlayAudioPractice = async (e: React.MouseEvent, lesson: Lesson) => {
+    e.stopPropagation();
+    if (playingId) return;
+    
+    setPlayingId(lesson.id);
+    try {
+      await playLessonAudioSummary(lesson.title, lesson.description);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      // Keep loading for a moment to signify it finished playing or processing
+      setTimeout(() => setPlayingId(null), 1000);
+    }
   };
 
   return (
@@ -98,6 +117,10 @@ const LessonPath: React.FC<LessonPathProps> = ({ lessons, onSelectLesson }) => {
                 const isAvailable = lesson.status === 'available';
                 const isBoss = lesson.type === 'boss';
                 const isStory = lesson.type === 'story';
+                const isRoleplay = lesson.type === 'roleplay';
+                const canAudio = isAvailable || isCompleted;
+                const showAudioButton = !isBoss && !isRoleplay && canAudio;
+                
                 const globalIdx = unitIdx * 5 + idx;
                 const offset = Math.sin(globalIdx * 1.2) * 25; // Matching SVG path logic
 
@@ -110,7 +133,7 @@ const LessonPath: React.FC<LessonPathProps> = ({ lessons, onSelectLesson }) => {
                   >
                     {/* Lesson Node */}
                     <div className={`
-                      ${isBoss ? 'w-32 h-32' : isStory ? 'w-28 h-28' : 'w-24 h-24'} 
+                      ${isBoss ? 'w-32 h-32' : (isStory || isRoleplay) ? 'w-28 h-28' : 'w-24 h-24'} 
                       rounded-[2.5rem] flex flex-col items-center justify-center transition-all duration-300
                       ${isCompleted 
                         ? 'bg-green-500 shadow-[0_10px_0_0_#16a34a] hover:translate-y-[-4px] hover:shadow-[0_14px_0_0_#16a34a]' 
@@ -119,7 +142,7 @@ const LessonPath: React.FC<LessonPathProps> = ({ lessons, onSelectLesson }) => {
                           : 'bg-gray-200 shadow-[0_10px_0_0_#cbd5e1] cursor-not-allowed'}
                     `}>
                       <span className={`text-4xl ${!isAvailable && !isCompleted ? 'opacity-30 grayscale' : ''}`}>
-                        {isBoss ? '👑' : isStory ? '📖' : isCompleted ? '✅' : '🌟'}
+                        {isBoss ? '👑' : isStory ? '📖' : isRoleplay ? '🎭' : isCompleted ? '✅' : '🌟'}
                       </span>
                       {isCompleted && (
                         <div className="absolute -top-2 -right-2 bg-yellow-400 text-[10px] font-black px-2 py-0.5 rounded-full shadow-lg text-yellow-900 border-2 border-white">
@@ -129,19 +152,39 @@ const LessonPath: React.FC<LessonPathProps> = ({ lessons, onSelectLesson }) => {
                     </div>
 
                     {/* Tooltip Label */}
-                    <div className="absolute top-full left-1/2 -translate-x-1/2 mt-6 pointer-events-none">
+                    <div className="absolute top-full left-1/2 -translate-x-1/2 mt-6 pointer-events-none group-hover:pointer-events-auto">
                       <div className={`
-                        px-4 py-3 rounded-2xl border-2 whitespace-nowrap transition-all duration-300
+                        px-4 py-4 rounded-2xl border-2 whitespace-nowrap transition-all duration-300
                         ${isAvailable ? 'bg-white border-blue-400 opacity-100 scale-100 shadow-xl' : 'bg-white border-gray-100 opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100 shadow-md'}
                       `}>
                          <div className="flex flex-col items-center">
                             <span className="text-[10px] font-black text-gray-400 uppercase tracking-tighter">
-                              {isBoss ? 'DESAFÍO FINAL' : isStory ? 'HISTORIA' : `LECCIÓN ${globalIdx + 1}`}
+                              {isBoss ? 'DESAFÍO FINAL' : isStory ? 'HISTORIA' : isRoleplay ? 'PRÁCTICA SOCIAL' : `LECCIÓN ${globalIdx + 1}`}
                             </span>
                             <span className="text-sm font-extrabold text-gray-800">{lesson.title}</span>
-                            <p className="text-[11px] font-bold text-gray-500 mt-1 max-w-[180px] text-center whitespace-normal leading-tight">
+                            <p className="text-[11px] font-bold text-gray-500 mt-1 mb-3 max-w-[180px] text-center whitespace-normal leading-tight">
                               {lesson.description}
                             </p>
+                            
+                            {showAudioButton && (
+                              <button 
+                                onClick={(e) => handlePlayAudioPractice(e, lesson)}
+                                disabled={!!playingId}
+                                className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border-2 transition-all group/audio
+                                  ${playingId === lesson.id 
+                                    ? 'bg-indigo-50 border-indigo-200 text-indigo-500' 
+                                    : 'bg-indigo-500 border-indigo-600 text-white hover:bg-indigo-600 active:translate-y-0.5'}`}
+                              >
+                                {playingId === lesson.id ? (
+                                  <Loader2 size={12} className="animate-spin" />
+                                ) : (
+                                  <Headphones size={12} className="group-hover/audio:scale-110 transition-transform" />
+                                )}
+                                <span className="text-[9px] font-black uppercase tracking-widest">
+                                  {playingId === lesson.id ? 'Sintonizando...' : 'Escuchar Resumen'}
+                                </span>
+                              </button>
+                            )}
                          </div>
                       </div>
                       {/* Pointer arrow */}

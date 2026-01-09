@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { GoogleGenAI } from "@google/genai";
 
@@ -27,6 +26,11 @@ const MascotHero: React.FC<MascotHeroProps> = ({ outfitId = 'default' }) => {
       return;
     }
 
+    if (!process.env.API_KEY) {
+      console.warn("API_KEY missing for mascot generation");
+      return;
+    }
+
     setIsGenerating(true);
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
@@ -40,7 +44,7 @@ const MascotHero: React.FC<MascotHeroProps> = ({ outfitId = 'default' }) => {
         config: { imageConfig: { aspectRatio: "1:1" } },
       });
 
-      const part = response.candidates[0].content.parts.find(p => p.inlineData);
+      const part = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
       if (part?.inlineData) {
         const b64 = `data:image/png;base64,${part.inlineData.data}`;
         setImageUrl(b64);

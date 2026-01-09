@@ -2,15 +2,17 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Exercise, PronunciationFeedback, SavedPhrase } from '../types';
 import { playPronunciation, analyzePronunciation, transcribeAudio } from '../services/geminiService';
+import { Mic, CheckCircle2, XCircle, Info, Bookmark, BookmarkCheck, Volume2, Sparkles, AlertCircle, Clock, Timer } from 'lucide-react';
 
 interface ExerciseViewProps {
   exercise: Exercise;
   onNext: (isCorrect: boolean) => void;
   onSave: (phrase: Omit<SavedPhrase, 'id' | 'timestamp' | 'masteryLevel'>) => void;
   isSaved: boolean;
+  isExpert?: boolean;
 }
 
-const ExerciseView: React.FC<ExerciseViewProps> = ({ exercise, onNext, onSave, isSaved }) => {
+const ExerciseView: React.FC<ExerciseViewProps> = ({ exercise, onNext, onSave, isSaved, isExpert }) => {
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [answer, setAnswer] = useState('');
   const [isChecked, setIsChecked] = useState(false);
@@ -18,11 +20,14 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({ exercise, onNext, onSave, i
   const [showSaveToast, setShowSaveToast] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   
+  // Timer for Expert Mode
+  const [timeLeft, setTimeLeft] = useState(20);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+
   // Audio state
   const [isRecording, setIsRecording] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [feedback, setFeedback] = useState<PronunciationFeedback | null>(null);
-  const [activeWordIdx, setActiveWordIdx] = useState<number | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
 
@@ -34,13 +39,37 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({ exercise, onNext, onSave, i
     setFeedback(null);
     setIsRecording(false);
     setIsAnalyzing(false);
-    setActiveWordIdx(null);
     setShowHelp(false);
+    setTimeLeft(isExpert ? (exercise.type === 'ROLEPLAY' ? 30 : 20) : 0);
     
-    if (exercise.type === 'LISTENING' || exercise.type === 'SPEAKING') {
-      playPronunciation(exercise.audioText || exercise.correctAnswer || exercise.question);
+    if (exercise.type === 'LISTENING' || exercise.type === 'SPEAKING' || exercise.type === 'ROLEPLAY') {
+      playPronunciation(exercise.audioText || exercise.question);
     }
-  }, [exercise]);
+
+    if (isExpert) {
+      if (timerRef.current) clearInterval(timerRef.current);
+      timerRef.current = setInterval(() => {
+        setTimeLeft(prev => {
+          if (prev <= 1) {
+            if (timerRef.current) clearInterval(timerRef.current);
+            handleTimeOut();
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [exercise, isExpert]);
+
+  const handleTimeOut = () => {
+    if (isChecked) return;
+    setIsCorrect(false);
+    setIsChecked(true);
+  };
 
   const handleSaveClick = () => {
     onSave({ original: exercise.question, translation: exercise.correctAnswer });
@@ -51,13 +80,16 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({ exercise, onNext, onSave, i
   };
 
   const handleCheck = () => {
+    if (timerRef.current) clearInterval(timerRef.current);
     let correct = false;
     if (exercise.type === 'MULTIPLE_CHOICE') {
       correct = selectedOption === exercise.correctAnswer;
-    } else if (exercise.type === 'SPEAKING') {
-      correct = (feedback?.score || 0) >= 75; // Umbral de aprobación para voz
+    } else if (exercise.type === 'SPEAKING' || exercise.type === 'ROLEPLAY') {
+      correct = feedback ? (feedback.score >= 70) : (answer.trim().length > 5);
     } else {
-      correct = answer.toLowerCase().trim().replace(/[.,!?;:]/g, "") === exercise.correctAnswer.toLowerCase().trim().replace(/[.,!?;:]/g, "");
+      const cleanInput = answer.toLowerCase().trim().replace(/[.,!?;:]/g, "");
+      const cleanCorrect = exercise.correctAnswer.toLowerCase().trim().replace(/[.,!?;:]/g, "");
+      correct = cleanInput === cleanCorrect;
     }
     
     setIsCorrect(correct);
@@ -83,9 +115,11 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({ exercise, onNext, onSave, i
           const base64Data = (reader.result as string).split(',')[1];
           setIsAnalyzing(true);
           try {
-            if (exercise.type === 'SPEAKING') {
-              const result = await analyzePronunciation(base64Data, exercise.question || exercise.correctAnswer);
+            if (exercise.type === 'SPEAKING' || exercise.type === 'ROLEPLAY') {
+              const result = await analyzePronunciation(base64Data, exercise.correctAnswer || exercise.question);
               setFeedback(result);
+              const transcript = result.wordAnalysis.map(w => w.word).join(" ");
+              setAnswer(transcript);
             } else {
               const transcription = await transcribeAudio(base64Data);
               setAnswer(transcription);
@@ -116,13 +150,14 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({ exercise, onNext, onSave, i
   };
 
   const getHelpText = () => {
+    if (isExpert) return "En modo Experto las pistas están desactivadas.";
     if (exercise.explanation) return exercise.explanation;
     const genericTips: Record<string, string> = {
       'TRANSLATE': 'Lee la oración y traduce al inglés.',
       'MULTIPLE_CHOICE': 'Elige la respuesta más natural.',
       'LISTENING': 'Escribe exactamente lo que oigas.',
       'SPEAKING': 'Pulsa en las palabras para escucharlas por separado. Luego graba la frase completa.',
-      'ROLEPLAY': 'Responde de forma fluida al contexto dado.',
+      'ROLEPLAY': 'Responde al personaje de la forma más natural posible. Usa el micrófono para mayor inmersión.',
     };
     return genericTips[exercise.type] || 'Sigue las instrucciones.';
   };
@@ -136,7 +171,7 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({ exercise, onNext, onSave, i
               <button
                 key={option}
                 onClick={() => !isChecked && setSelectedOption(option)}
-                className={`p-4 border-2 rounded-2xl text-lg font-bold transition-all ${
+                className={`p-6 border-2 rounded-[2rem] text-lg font-black transition-all ${
                   selectedOption === option 
                     ? 'border-blue-400 bg-blue-50 text-blue-500 shadow-[0_4px_0_0_#60a5fa]' 
                     : 'border-gray-200 hover:bg-gray-50 active:translate-y-1'
@@ -147,28 +182,68 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({ exercise, onNext, onSave, i
             ))}
           </div>
         );
+      case 'ROLEPLAY':
+        return (
+          <div className="mt-8 space-y-6 animate-in fade-in duration-700">
+             <div className="flex items-start gap-4">
+               <div className="w-12 h-12 bg-indigo-100 rounded-2xl flex items-center justify-center text-2xl shrink-0 border-2 border-white shadow-sm">👤</div>
+               <div className="bg-white p-6 rounded-[2rem] rounded-tl-none border-2 border-indigo-50 shadow-sm relative">
+                 <div className="absolute -left-2 top-0 w-4 h-4 bg-white border-l-2 border-t-2 border-indigo-50 rotate-[-45deg]" />
+                 <p className="font-bold text-gray-700 leading-relaxed italic">"{exercise.question}"</p>
+                 <button onClick={() => playPronunciation(exercise.question)} className="absolute -bottom-2 -right-2 w-8 h-8 bg-indigo-500 text-white rounded-full flex items-center justify-center shadow-md hover:scale-110 transition-transform">
+                   <Volume2 size={14} />
+                 </button>
+               </div>
+             </div>
+
+             <div className="relative mt-12">
+                <textarea
+                  className="w-full h-40 p-8 bg-emerald-50/30 border-2 border-dashed border-emerald-200 focus:border-emerald-500 rounded-[2.5rem] text-xl resize-none outline-none transition-all font-black text-emerald-800 placeholder:text-emerald-300 shadow-inner"
+                  placeholder="Responde aquí..."
+                  value={answer}
+                  onChange={(e) => !isChecked && setAnswer(e.target.value)}
+                  disabled={isChecked || isAnalyzing}
+                />
+                <div className="absolute bottom-6 right-6 flex gap-3">
+                  <button
+                    onMouseDown={startVoiceInput}
+                    onMouseUp={stopVoiceInput}
+                    onTouchStart={startVoiceInput}
+                    onTouchEnd={stopVoiceInput}
+                    disabled={isChecked || isAnalyzing}
+                    className={`w-16 h-16 rounded-2xl flex items-center justify-center transition-all shadow-xl ${isRecording ? 'bg-red-500 text-white animate-pulse' : 'bg-emerald-500 text-white hover:bg-emerald-600'}`}
+                  >
+                    <Mic size={28} />
+                  </button>
+                </div>
+             </div>
+             <p className="text-center text-[10px] font-black text-emerald-400 uppercase tracking-widest">
+               {isAnalyzing ? 'PARROT ESTÁ PROCESANDO...' : isRecording ? 'GRABANDO TU RESPUESTA...' : 'Usa el micrófono para practicar tu fluidez'}
+             </p>
+          </div>
+        );
       case 'TRANSLATE':
       case 'LISTENING':
         return (
           <div className="mt-8 space-y-4">
             <div className="relative">
               <textarea
-                className="w-full h-32 p-4 border-2 border-gray-200 rounded-2xl text-xl resize-none focus:outline-none focus:border-blue-400 transition-colors"
-                placeholder={isAnalyzing ? "Escuchando..." : "Escribe aquí..."}
+                className="w-full h-40 p-6 bg-gray-50 border-2 border-transparent focus:border-blue-400 rounded-[2.5rem] text-xl resize-none outline-none transition-all font-bold text-gray-700"
+                placeholder={isAnalyzing ? "Analizando voz..." : "Escribe tu respuesta aquí..."}
                 value={answer}
                 onChange={(e) => !isChecked && setAnswer(e.target.value)}
                 disabled={isChecked || isAnalyzing}
               />
-              <div className="absolute bottom-4 right-4">
+              <div className="absolute bottom-6 right-6">
                 <button
                   onMouseDown={startVoiceInput}
                   onMouseUp={stopVoiceInput}
                   onTouchStart={startVoiceInput}
                   onTouchEnd={stopVoiceInput}
                   disabled={isChecked || isAnalyzing}
-                  className={`p-4 rounded-full transition-all ${isRecording ? 'bg-red-500 text-white animate-pulse' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                  className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all shadow-lg ${isRecording ? 'bg-red-500 text-white animate-pulse' : 'bg-white text-gray-400 hover:bg-blue-500 hover:text-white'}`}
                 >
-                  <span className="text-xl">🎙️</span>
+                  <Mic size={24} />
                 </button>
               </div>
             </div>
@@ -177,47 +252,47 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({ exercise, onNext, onSave, i
       case 'SPEAKING':
         const words = (exercise.question || exercise.correctAnswer || "").split(" ");
         return (
-          <div className="flex flex-col items-center gap-10 mt-8 mb-20 animate-in fade-in duration-500">
-            {/* Sección de Escucha Activa */}
-            <div className="w-full bg-blue-50/50 p-8 rounded-[3rem] border-2 border-blue-100 text-center relative overflow-hidden">
-              <div className="absolute top-4 left-6 text-[10px] font-black text-blue-400 uppercase tracking-widest">Escucha a Parrot</div>
+          <div className="flex flex-col items-center gap-8 mt-8 mb-24 animate-in fade-in slide-in-from-bottom-6 duration-700">
+            <div className="w-full bg-white p-10 rounded-[3rem] border-2 border-gray-50 shadow-sm text-center relative overflow-hidden group">
+              <div className="absolute top-4 left-6 text-[10px] font-black text-gray-300 uppercase tracking-[0.2em]">Referencia Nativa</div>
               <button 
                 onClick={() => playPronunciation(exercise.question || exercise.correctAnswer)}
-                className="mb-6 w-16 h-16 bg-blue-500 rounded-2xl flex items-center justify-center text-white text-2xl shadow-[0_6px_0_0_#3b82f6] active:translate-y-1 active:shadow-none transition-all mx-auto"
+                className="mb-8 w-20 h-20 bg-blue-500 rounded-3xl flex items-center justify-center text-white shadow-[0_8px_0_0_#3b82f6] active:translate-y-1 active:shadow-none transition-all mx-auto group-hover:scale-105"
               >
-                🔊
+                <Volume2 size={32} />
               </button>
               
-              <div className="flex flex-wrap justify-center gap-x-2 gap-y-3">
+              <div className="flex flex-wrap justify-center gap-x-2 gap-y-3 px-4">
                 {words.map((word, i) => (
                   <button
                     key={i}
                     onClick={() => playPronunciation(word.replace(/[.,!?;:]/g, ""))}
-                    className="text-2xl font-black text-gray-700 hover:text-blue-500 hover:scale-110 transition-all cursor-pointer px-1 rounded-lg hover:bg-blue-100/50"
+                    className="text-2xl font-black text-gray-700 hover:text-blue-500 transition-all cursor-pointer px-1.5 py-1 rounded-xl hover:bg-blue-50"
                   >
                     {word}
                   </button>
                 ))}
               </div>
-              <p className="mt-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Haz clic en una palabra para oírla sola</p>
+              <p className="mt-6 text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center justify-center gap-2">
+                <Info size={12} /> Toca las palabras para escucharlas
+              </p>
             </div>
 
-            <div className="h-px w-24 bg-gray-100" />
-
-            {/* Sección de Feedback Fonético */}
             {feedback ? (
               <div className="w-full space-y-4 animate-in slide-in-from-bottom-4 duration-500">
-                <div className="bg-white border-2 border-gray-100 rounded-[3rem] p-8 shadow-sm">
-                  <div className="flex items-center justify-between mb-8">
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 bg-emerald-100 rounded-2xl flex items-center justify-center text-2xl">🗣️</div>
+                <div className="bg-white border-2 border-gray-100 rounded-[3rem] p-8 shadow-md">
+                  <div className="flex items-center justify-between mb-8 pb-4 border-b border-gray-50">
+                    <div className="flex items-center gap-4">
+                      <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-2xl ${feedback.score >= 80 ? 'bg-green-100 text-green-600' : 'bg-yellow-100 text-yellow-600'}`}>
+                         {feedback.score >= 80 ? <Sparkles size={28} /> : <AlertCircle size={28} />}
+                      </div>
                       <div>
-                        <h3 className="font-black text-gray-800">Tu Pronunciación</h3>
-                        <p className="text-xs text-gray-400 font-bold">Feedback por palabra</p>
+                        <h3 className="font-black text-gray-800 text-lg">Puntuación de Voz</h3>
+                        <p className="text-xs text-gray-400 font-bold uppercase tracking-widest">{feedback.accuracy}</p>
                       </div>
                     </div>
                     <div className="text-right">
-                      <span className={`text-3xl font-black ${feedback.score >= 80 ? 'text-green-500' : feedback.score >= 60 ? 'text-yellow-500' : 'text-red-500'}`}>
+                      <span className={`text-4xl font-black ${feedback.score >= 80 ? 'text-green-500' : feedback.score >= 60 ? 'text-yellow-500' : 'text-red-500'}`}>
                         {feedback.score}%
                       </span>
                     </div>
@@ -227,60 +302,43 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({ exercise, onNext, onSave, i
                     {feedback.wordAnalysis.map((item, idx) => (
                       <div key={idx} className="relative">
                         <button 
-                          onClick={() => setActiveWordIdx(activeWordIdx === idx ? null : idx)}
-                          className={`text-2xl font-black px-3 py-1.5 rounded-2xl transition-all ${
+                          className={`text-xl font-black px-4 py-2.5 rounded-2xl transition-all ${
                             item.isCorrect 
                               ? 'text-green-600 bg-green-50 border-2 border-emerald-100' 
                               : 'text-red-500 bg-red-50 border-2 border-red-100 underline decoration-wavy underline-offset-8'
-                          } ${activeWordIdx === idx ? 'ring-4 ring-blue-400/20 scale-110 z-10' : ''}`}
+                          }`}
                         >
                           {item.word}
                         </button>
-                        
-                        {activeWordIdx === idx && (
-                          <div className="absolute top-full left-1/2 -translate-x-1/2 mt-4 w-56 bg-gray-800 text-white text-[11px] p-4 rounded-[1.5rem] z-20 shadow-2xl animate-in fade-in zoom-in duration-200">
-                            <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-3 h-3 bg-gray-800 rotate-45" />
-                            <p className="font-black mb-1 flex items-center gap-2">
-                              {item.isCorrect ? '🌟 ¡Perfecto!' : '🔧 Tip de Pronunciación'}
-                            </p>
-                            <p className="opacity-90 leading-relaxed font-bold italic">{item.feedback || '¡Sigue así!'}</p>
-                          </div>
-                        )}
                       </div>
                     ))}
                   </div>
 
-                  <div className="p-5 bg-gray-50 rounded-3xl border-2 border-gray-100 text-center">
-                    <p className="text-sm text-gray-600 font-bold italic">
-                      "{feedback.generalFeedback}"
-                    </p>
+                  <div className="p-6 bg-gray-50 rounded-3xl border-2 border-gray-100 text-center italic font-bold text-gray-600 text-sm">
+                    "{feedback.generalFeedback}"
                   </div>
                 </div>
               </div>
             ) : (
               <div className="flex flex-col items-center gap-6">
-                <div className="relative">
-                  <div className={`absolute inset-0 bg-red-500 rounded-full blur-2xl opacity-10 transition-all ${isRecording ? 'scale-150 opacity-20 animate-pulse' : 'scale-0'}`} />
-                  <button 
-                    onMouseDown={startVoiceInput}
-                    onMouseUp={stopVoiceInput}
-                    onTouchStart={startVoiceInput}
-                    onTouchEnd={stopVoiceInput}
-                    disabled={isAnalyzing || isChecked}
-                    className={`w-28 h-28 rounded-full flex items-center justify-center text-white text-5xl transition-all relative ${
-                      isRecording 
-                        ? 'bg-red-500 scale-110' 
-                        : isAnalyzing 
-                          ? 'bg-gray-200 cursor-wait rotate-12' 
-                          : 'bg-red-500 shadow-[0_10px_0_0_#ef4444] hover:bg-red-600 active:translate-y-1 active:shadow-none'
-                    }`}
-                  >
-                    {isAnalyzing ? '✨' : '🎤'}
-                  </button>
-                </div>
-                <p className={`text-xs font-black uppercase tracking-widest ${isRecording ? 'text-red-500 animate-pulse' : 'text-gray-400'}`}>
-                  {isAnalyzing ? 'Parrot está evaluando...' : isRecording ? 'GRABANDO TU VOZ...' : 'Mantén para repetir'}
-                </p>
+                <button 
+                  onMouseDown={startVoiceInput}
+                  onMouseUp={stopVoiceInput}
+                  onTouchStart={startVoiceInput}
+                  onTouchEnd={stopVoiceInput}
+                  disabled={isAnalyzing || isChecked}
+                  className={`w-32 h-32 rounded-full flex items-center justify-center text-white text-5xl transition-all relative z-10 ${
+                    isRecording 
+                      ? 'bg-red-500 scale-110 animate-pulse' 
+                      : isAnalyzing 
+                        ? 'bg-gray-100 text-gray-300' 
+                        : 'bg-red-500 shadow-[0_12px_0_0_#ef4444] hover:bg-red-600 active:translate-y-1 active:shadow-none'
+                  }`}
+                >
+                  {isAnalyzing ? (
+                    <div className="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+                  ) : <Mic size={48} />}
+                </button>
               </div>
             )}
           </div>
@@ -291,63 +349,87 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({ exercise, onNext, onSave, i
   };
 
   return (
-    <div className="max-w-2xl mx-auto w-full flex flex-col h-full pt-10 pb-32">
-      <div className="flex justify-between items-start mb-6">
+    <div className="max-w-3xl mx-auto w-full flex flex-col h-full pt-10 pb-32 px-4 md:px-0">
+      {isExpert && !isChecked && (
+        <div className="mb-8 flex items-center justify-center gap-3 animate-in slide-in-from-top-4">
+          <div className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-full shadow-lg border border-indigo-400">
+            <Timer size={20} className={timeLeft <= 5 ? 'animate-ping text-red-300' : 'animate-pulse'} />
+            <span className={`text-xl font-black tabular-nums ${timeLeft <= 5 ? 'text-red-200' : 'text-white'}`}>
+              00:{timeLeft < 10 ? `0${timeLeft}` : timeLeft}
+            </span>
+          </div>
+          <div className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">Reto Experto</div>
+        </div>
+      )}
+
+      <div className="flex justify-between items-start mb-10">
         <div className="flex items-center gap-4">
-          <h2 className="text-3xl font-black text-gray-800">
+          <h2 className="text-3xl font-black text-gray-800 tracking-tight">
             {exercise.type === 'TRANSLATE' ? 'Traduce esta oración' : 
              exercise.type === 'MULTIPLE_CHOICE' ? 'Selecciona la correcta' :
-             exercise.type === 'LISTENING' ? '¿Qué escuchaste?' : 'Escucha y Repite'}
+             exercise.type === 'LISTENING' ? '¿Qué escuchaste?' : 
+             exercise.type === 'ROLEPLAY' ? 'Practica la conversación' : 'Práctica de Pronunciación'}
           </h2>
-          <button 
-            onClick={() => setShowHelp(!showHelp)}
-            className="w-8 h-8 rounded-full bg-gray-100 text-gray-400 text-sm font-black hover:bg-blue-500 hover:text-white transition-all"
-          >
-            ?
-          </button>
+          {!isExpert && (
+            <button 
+              onClick={() => setShowHelp(!showHelp)}
+              className={`w-10 h-10 rounded-2xl flex items-center justify-center transition-all ${showHelp ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'}`}
+            >
+              <Info size={20} />
+            </button>
+          )}
         </div>
         
         <div className="relative">
           <button
             onClick={handleSaveClick}
-            className={`p-3 rounded-2xl border-2 transition-all ${isSaved ? 'bg-yellow-100 border-yellow-400 text-yellow-600' : 'bg-white border-gray-100 text-gray-300 hover:border-emerald-400 hover:text-emerald-400'}`}
+            className={`w-12 h-12 rounded-2xl border-2 flex items-center justify-center transition-all ${isSaved ? 'bg-yellow-100 border-yellow-400 text-yellow-600' : 'bg-white border-gray-100 text-gray-300 hover:border-emerald-400 hover:text-emerald-400'}`}
           >
-            {isSaved ? '🔖' : '📑'}
+            {isSaved ? <BookmarkCheck size={24} /> : <Bookmark size={24} />}
           </button>
-          {showSaveToast && (
-            <div className="absolute right-0 top-full mt-2 bg-yellow-400 text-white text-[10px] font-black px-3 py-1 rounded-full shadow-lg animate-bounce whitespace-nowrap z-30">
-              ¡Guardado!
-            </div>
-          )}
         </div>
       </div>
 
-      {showHelp && (
-        <div className="mb-6 p-4 bg-gray-800 text-white text-xs font-bold rounded-2xl animate-in fade-in slide-in-from-top-2">
-          {getHelpText()}
+      {showHelp && !isExpert && (
+        <div className="mb-10 p-6 bg-gray-800 text-white text-sm font-bold rounded-[2rem] animate-in fade-in slide-in-from-top-4 shadow-xl border-l-8 border-blue-500">
+          <div className="flex gap-4">
+            <Sparkles className="text-blue-400 shrink-0" size={24} />
+            <p className="leading-relaxed opacity-90">{getHelpText()}</p>
+          </div>
         </div>
       )}
       
-      {exercise.type !== 'SPEAKING' && (
-        <div className="bg-white border-2 border-gray-100 p-8 rounded-[2.5rem] mb-8 shadow-sm">
-          <p className="text-2xl font-black text-gray-700 leading-relaxed">{exercise.question}</p>
+      <div className={`bg-white border-2 p-10 rounded-[3rem] mb-10 shadow-sm relative overflow-hidden group ${isExpert ? 'border-indigo-100' : 'border-gray-50'}`}>
+        <div className="absolute top-0 right-0 p-4 opacity-5">
+          {isExpert ? <Sparkles size={120} className="text-indigo-500" /> : <Sparkles size={120} />}
         </div>
-      )}
+        <p className="text-2xl font-black text-gray-800 leading-relaxed relative z-10">{exercise.question}</p>
+        {isExpert && (
+           <div className="absolute bottom-4 left-6 text-[9px] font-black text-indigo-300 uppercase tracking-widest">
+             Bonus Experto: +5 XP por respuesta
+           </div>
+        )}
+      </div>
 
       <div className="flex-1">
         {renderContent()}
       </div>
 
-      <div className={`fixed bottom-0 left-0 w-full p-6 bg-white border-t-2 transition-all duration-300 ${isChecked ? (isCorrect ? 'bg-green-100 border-green-300' : 'bg-red-100 border-red-300') : 'border-gray-100'} z-50`}>
-        <div className="max-w-2xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
-          <div className="flex-1">
+      <div className={`fixed bottom-0 left-0 w-full p-8 transition-all duration-500 ${isChecked ? (isCorrect ? 'bg-green-100 border-t-4 border-green-500' : 'bg-red-100 border-t-4 border-red-500') : 'bg-white border-t-2 border-gray-100'} z-50 shadow-[0_-10px_40px_rgba(0,0,0,0.05)]`}>
+        <div className="max-w-3xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
+          <div className="flex-1 w-full text-center md:text-left">
             {isChecked && (
-              <div className="animate-in slide-in-from-left-4 duration-300">
-                <span className={`text-2xl font-black block mb-1 ${isCorrect ? 'text-green-700' : 'text-red-700'}`}>
-                  {isCorrect ? '¡Fantástico!' : 'Casi lo tienes...'}
-                </span>
-                {!isCorrect && exercise.type !== 'SPEAKING' && (
-                  <p className="text-red-800 font-bold text-sm">Correcto: {exercise.correctAnswer}</p>
+              <div className="animate-in slide-in-from-left-4 duration-500">
+                <div className="flex items-center gap-3 justify-center md:justify-start mb-1">
+                  {isCorrect ? <CheckCircle2 className="text-green-600" /> : <XCircle className="text-red-600" />}
+                  <span className={`text-2xl font-black ${isCorrect ? 'text-green-700' : 'text-red-700'}`}>
+                    {isCorrect ? '¡Excelente!' : timeLeft === 0 ? '¡Se acabó el tiempo!' : 'Casi...'}
+                  </span>
+                </div>
+                {!isCorrect && exercise.type !== 'SPEAKING' && exercise.type !== 'ROLEPLAY' && (
+                  <p className="text-red-800 font-bold text-sm bg-white/50 px-4 py-2 rounded-xl inline-block">
+                    Respuesta correcta: <span className="font-black underline">{exercise.correctAnswer}</span>
+                  </p>
                 )}
               </div>
             )}
@@ -357,17 +439,17 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({ exercise, onNext, onSave, i
             onClick={isChecked ? () => onNext(isCorrect) : handleCheck}
             disabled={
               (!isChecked && exercise.type === 'MULTIPLE_CHOICE' && !selectedOption) ||
-              (!isChecked && exercise.type === 'SPEAKING' && !feedback) ||
+              (!isChecked && (exercise.type === 'SPEAKING' || exercise.type === 'ROLEPLAY') && !answer && !feedback) ||
               (!isChecked && (exercise.type === 'TRANSLATE' || exercise.type === 'LISTENING') && !answer) ||
               isAnalyzing
             }
-            className={`w-full md:w-auto px-16 py-5 rounded-[2rem] font-black text-xl text-white shadow-xl transition-all active:scale-95 ${
+            className={`w-full md:w-auto px-16 py-5 rounded-3xl font-black text-xl text-white shadow-xl transition-all active:scale-95 ${
               isChecked 
-                ? (isCorrect ? 'bg-green-500 shadow-[0_6px_0_0_#16a34a]' : 'bg-red-500 shadow-[0_6px_0_0_#dc2626]') 
-                : (isAnalyzing || (!selectedOption && exercise.type === 'MULTIPLE_CHOICE') ? 'bg-gray-200 shadow-none' : 'bg-green-500 shadow-[0_6px_0_0_#16a34a]')
+                ? (isCorrect ? 'bg-green-500 shadow-[0_8px_0_0_#16a34a] hover:bg-green-600' : 'bg-red-500 shadow-[0_8px_0_0_#dc2626] hover:bg-red-600') 
+                : (isAnalyzing || (!selectedOption && exercise.type === 'MULTIPLE_CHOICE') ? 'bg-gray-200 shadow-none' : 'bg-emerald-500 shadow-[0_8px_0_0_#059669] hover:bg-emerald-600 hover:shadow-[0_4px_0_0_#059669]')
             }`}
           >
-            {isChecked ? 'SIGUIENTE' : 'COMPROBAR'}
+            {isChecked ? 'CONTINUAR' : 'COMPROBAR'}
           </button>
         </div>
       </div>

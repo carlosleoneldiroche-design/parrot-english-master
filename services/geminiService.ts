@@ -1,23 +1,22 @@
+
 import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { Exercise, PronunciationFeedback, UserGoal, SupportedLanguage } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
+// Helper function to convert language code to full name for prompt engineering
 const getLanguageName = (code: SupportedLanguage) => {
   const names: Record<string, string> = {
     es: 'Spanish', fr: 'French', pt: 'Portuguese', de: 'German', it: 'Italian', 
     zh: 'Chinese', ja: 'Japanese', hi: 'Hindi', ar: 'Arabic', ru: 'Russian',
     bn: 'Bengali', ur: 'Urdu', id: 'Indonesian', ko: 'Korean', vi: 'Vietnamese',
-    tr: 'Turkish', te: 'Telugu', mr: 'Marathi', ta: 'Tamil', tl: 'Tagalog'
+    tr: 'Turkish', te: 'Telugu', mr: 'Marathi', ta: 'Tamil', tl: 'Tagalog',
+    pl: 'Polish', nl: 'Dutch', sv: 'Swedish', el: 'Greek', he: 'Hebrew', th: 'Thai'
   };
   return names[code] || 'Spanish';
 };
 
-/**
- * Gemini 3 Pro: Análisis de contenido de video
- */
 export const analyzeVideoContent = async (videoBase64: string, nativeLang: SupportedLanguage = 'es'): Promise<string> => {
   const langName = getLanguageName(nativeLang);
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const response = await ai.models.generateContent({
     model: 'gemini-3-pro-preview',
     contents: [
@@ -36,20 +35,19 @@ export const analyzeVideoContent = async (videoBase64: string, nativeLang: Suppo
   return response.text || "No se pudo analizar el video.";
 };
 
-/**
- * Generación de ejercicios con Gemini 3 Flash
- */
 export const generateLessonExercises = async (topic: string, goal?: UserGoal, nativeLang: SupportedLanguage = 'es'): Promise<Exercise[]> => {
   const goalContext = goal ? `El objetivo del usuario es ${goal}.` : "";
   const langName = getLanguageName(nativeLang);
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   const response = await ai.models.generateContent({
     model: "gemini-3-flash-preview",
     contents: `Genera 5 ejercicios de aprendizaje de inglés para una lección titulada "${topic}". ${goalContext}
     El idioma nativo del usuario es ${langName}. 
     - TRANSLATE: Proporciona una oración en ${langName} para que el usuario la traduzca al inglés.
+    - ROLEPLAY: Proporciona una frase corta de un personaje (p.ej. un camarero) para que el usuario responda en inglés.
     - EXPLANATIONS: Todas las explicaciones y feedback deben estar en ${langName}.
-    Incluye una mezcla de: TRANSLATE, MULTIPLE_CHOICE, SPEAKING, LISTENING.
+    Incluye una mezcla de: TRANSLATE, MULTIPLE_CHOICE, SPEAKING, LISTENING, ROLEPLAY.
     Devuelve estrictamente JSON.`,
     config: {
       responseMimeType: "application/json",
@@ -59,7 +57,7 @@ export const generateLessonExercises = async (topic: string, goal?: UserGoal, na
           type: Type.OBJECT,
           properties: {
             id: { type: Type.STRING },
-            type: { type: Type.STRING, enum: ['TRANSLATE', 'MULTIPLE_CHOICE', 'SPEAKING', 'LISTENING'] },
+            type: { type: Type.STRING, enum: ['TRANSLATE', 'MULTIPLE_CHOICE', 'SPEAKING', 'LISTENING', 'ROLEPLAY'] },
             question: { type: Type.STRING },
             options: { type: Type.ARRAY, items: { type: Type.STRING } },
             correctAnswer: { type: Type.STRING },
@@ -80,10 +78,8 @@ export const generateLessonExercises = async (topic: string, goal?: UserGoal, na
   }
 };
 
-/**
- * Transcripción y Análisis de Pronunciación
- */
 export const transcribeAudio = async (audioBase64: string): Promise<string> => {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const response = await ai.models.generateContent({
     model: "gemini-3-flash-preview",
     contents: {
@@ -98,6 +94,7 @@ export const transcribeAudio = async (audioBase64: string): Promise<string> => {
 
 export const analyzePronunciation = async (audioBase64: string, expectedText: string, nativeLang: SupportedLanguage = 'es'): Promise<PronunciationFeedback> => {
   const langName = getLanguageName(nativeLang);
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const response = await ai.models.generateContent({
     model: "gemini-3-flash-preview",
     contents: {
@@ -142,9 +139,6 @@ export const analyzePronunciation = async (audioBase64: string, expectedText: st
   }
 };
 
-/**
- * Métodos auxiliares de codificación/decodificación (Manual implementation as required)
- */
 export function encode(bytes: Uint8Array) {
   let binary = '';
   const len = bytes.byteLength;
@@ -183,11 +177,9 @@ export async function decodeAudioData(
   return buffer;
 }
 
-/**
- * Reproducción TTS
- */
 export const playPronunciation = async (text: string) => {
   try {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash-preview-tts",
       contents: [{ parts: [{ text: text }] }],
@@ -199,7 +191,8 @@ export const playPronunciation = async (text: string) => {
     const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
     if (!base64Audio) return;
     
-    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+    const AudioContextClass = (window as any).AudioContext || (window as any).webkitAudioContext;
+    const audioContext = new AudioContextClass({ sampleRate: 24000 });
     const audioBuffer = await decodeAudioData(decode(base64Audio), audioContext, 24000, 1);
     const source = audioContext.createBufferSource();
     source.buffer = audioBuffer;
@@ -207,5 +200,30 @@ export const playPronunciation = async (text: string) => {
     source.start();
   } catch (err) {
     console.error("TTS Error:", err);
+  }
+};
+
+/**
+ * Generates a short English audio summary of a lesson topic for listening practice.
+ */
+export const playLessonAudioSummary = async (topic: string, description: string) => {
+  try {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    
+    // First, generate a 2-3 sentence clear English summary for listening
+    const textResponse = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: `Create a very short, clear 2-sentence English summary for a beginner-intermediate language lesson about "${topic}" (${description}). 
+      Make it suitable for a listening exercise. Return ONLY the English text.`
+    });
+    
+    const summaryText = textResponse.text?.trim() || `Today we are learning about ${topic}. Let's practice our skills together.`;
+    
+    // Then convert that text to speech
+    await playPronunciation(summaryText);
+    return summaryText;
+  } catch (err) {
+    console.error("Summary Audio Error:", err);
+    throw err;
   }
 };

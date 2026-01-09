@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { GoogleGenAI } from "@google/genai";
 
@@ -17,6 +16,12 @@ const Logo: React.FC<LogoProps> = ({ size = 'md' }) => {
       return;
     }
 
+    // Pre-check for API Key to avoid RPC errors
+    if (!process.env.API_KEY) {
+      console.warn("API_KEY is missing, skipping logo generation.");
+      return;
+    }
+
     setIsGenerating(true);
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
@@ -28,7 +33,7 @@ const Logo: React.FC<LogoProps> = ({ size = 'md' }) => {
         config: { imageConfig: { aspectRatio: "1:1" } },
       });
 
-      const part = response.candidates[0].content.parts.find(p => p.inlineData);
+      const part = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
       if (part?.inlineData) {
         const b64 = `data:image/png;base64,${part.inlineData.data}`;
         setLogoUrl(b64);

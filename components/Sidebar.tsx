@@ -1,5 +1,16 @@
 import React from 'react';
 import Logo from './Logo';
+import { 
+  Home, 
+  User, 
+  ShoppingBag, 
+  MessageSquare, 
+  PlayCircle, 
+  Wallet, 
+  Trophy, 
+  Gift, 
+  LogOut 
+} from 'lucide-react';
 
 interface SidebarProps {
   activeTab: string;
@@ -12,13 +23,13 @@ interface SidebarProps {
 
 const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, walletAddress, onConnectWallet, onOpenShare, onLogout }) => {
   const navItems = [
-    { id: 'learn', label: 'APRENDER', icon: '🏠' },
-    { id: 'profile', label: 'MI PERFIL', icon: '👤' },
-    { id: 'shop', label: 'TIENDA', icon: '🛍️' },
-    { id: 'chat', label: 'CHATEAR', icon: '💬' },
-    { id: 'video-lab', label: 'VIDEO LAB', icon: '🎬' },
-    { id: 'wallet', label: 'WALLET', icon: '🪙' },
-    { id: 'leaderboard', label: 'RANKING', icon: '🏆' },
+    { id: 'learn', label: 'APRENDER', icon: <Home size={22} /> },
+    { id: 'profile', label: 'MI PERFIL', icon: <User size={22} /> },
+    { id: 'shop', label: 'TIENDA', icon: <ShoppingBag size={22} /> },
+    { id: 'chat', label: 'CHATEAR', icon: <MessageSquare size={22} /> },
+    { id: 'video-lab', label: 'VIDEO LAB', icon: <PlayCircle size={22} /> },
+    { id: 'wallet', label: 'WALLET', icon: <Wallet size={22} /> },
+    { id: 'leaderboard', label: 'RANKING', icon: <Trophy size={22} /> },
   ];
 
   return (
@@ -39,7 +50,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, walletAddres
               : 'hover:bg-gray-50 text-gray-500'
             }`}
           >
-            <span className="text-xl">{item.icon}</span>
+            <span>{item.icon}</span>
             <span className="hidden md:inline text-sm uppercase tracking-wider">{item.label}</span>
           </button>
         ))}
@@ -48,7 +59,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, walletAddres
           onClick={onOpenShare}
           className="flex items-center gap-4 px-4 py-3 rounded-2xl font-black transition-all whitespace-nowrap text-purple-600 hover:bg-purple-50 group"
         >
-          <span className="text-xl group-hover:scale-125 transition-transform">🎁</span>
+          <span className="group-hover:scale-125 transition-transform"><Gift size={22} /></span>
           <span className="hidden md:inline text-sm uppercase tracking-wider">INVITAR</span>
         </button>
       </nav>
@@ -74,7 +85,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, walletAddres
           onClick={onLogout}
           className="w-full py-3 text-gray-400 hover:text-red-500 font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 transition-colors"
         >
-          <span>🚪</span> SALIR DE LA CUENTA
+          <LogOut size={14} /> <span>SALIR DE LA CUENTA</span>
         </button>
       </div>
     </div>
